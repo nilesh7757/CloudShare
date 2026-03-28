@@ -1,0 +1,64 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  password      String    // Hashed
+  folders       Folder[]  @relation("Owner")
+  sharedAccess  FolderAccess[]
+  files         File[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Folder {
+  id          String    @id @default(cuid())
+  name        String
+  ownerId     String
+  owner       User      @relation("Owner", fields: [ownerId], references: [id])
+  parentId    String?   // For nested folders
+  parent      Folder?   @relation("SubFolders", fields: [parentId], references: [id])
+  subFolders  Folder[]  @relation("SubFolders")
+  files       File[]
+  accessList  FolderAccess[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model File {
+  id          String    @id @default(cuid())
+  name        String
+  url         String    // URL from UploadThing
+  key         String    // Unique key from UploadThing for deletion
+  isEncoded   Boolean   @default(false)
+  size        Int
+  folderId    String
+  folder      Folder    @relation(fields: [folderId], references: [id])
+  ownerId     String
+  owner       User      @relation(fields: [ownerId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model FolderAccess {
+  id          String    @id @default(cuid())
+  folderId    String
+  folder      Folder    @relation(fields: [folderId], references: [id])
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  permission  String    // e.g., "READ", "WRITE"
+  createdAt   DateTime  @default(now())
+
+  @@unique([folderId, userId])
+}
