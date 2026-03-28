@@ -390,3 +390,11 @@ function DashboardContent() {
     </div>
   );
 }
+
+export default function Dashboard() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-gray-400 bg-[#0a0a0a] min-h-screen font-mono uppercase tracking-widest animate-pulse">Initializing Secure Workspace...</div>}>
+      <DashboardContent />
+    </Suspense>
+  );
+}
