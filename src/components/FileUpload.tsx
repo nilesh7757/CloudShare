@@ -60,7 +60,8 @@ export const FileUpload = ({ folderId, onUploadComplete }: FileUploadProps) => {
         });
 
         const chunkData = await chunkRes.json();
-        if (chunkRes.status !== 200 && chunkRes.status !== 308) {
+        // Check for success or 'resume incomplete' (308)
+        if (chunkRes.status !== 200 && chunkRes.status !== 201 && chunkRes.status !== 308) {
           throw new Error(chunkData.message || "Chunk failed");
         }
 
