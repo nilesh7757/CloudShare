@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { hasFolderPermission, hasFilePermission } from "@/lib/permissions";
 
 export async function PATCH(req: Request) {
   try {
@@ -12,8 +13,11 @@ export async function PATCH(req: Request) {
     const userId = (session.user as any).id;
 
     if (type === "folder") {
-      const folder = await prisma.folder.findUnique({ where: { id } });
-      if (!folder || folder.ownerId !== userId) return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
+      const folderExists = await prisma.folder.findUnique({ where: { id } });
+      if (!folderExists) return NextResponse.json({ message: "Not found" }, { status: 404 });
+      
+      const hasEditAccess = await hasFolderPermission(id, userId, "EDIT");
+      if (!hasEditAccess) return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
 
       const updated = await prisma.folder.update({
         where: { id },
@@ -25,10 +29,11 @@ export async function PATCH(req: Request) {
       });
       return NextResponse.json(updated);
     } else {
-      const file = await prisma.file.findUnique({ where: { id }, include: { folder: true } });
-      if (!file || (file.ownerId !== userId && file.folder.ownerId !== userId)) {
-        return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
-      }
+      const fileExists = await prisma.file.findUnique({ where: { id } });
+      if (!fileExists) return NextResponse.json({ message: "Not found" }, { status: 404 });
+
+      const hasEditAccess = await hasFilePermission(id, userId, "EDIT");
+      if (!hasEditAccess) return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
 
       const updated = await prisma.file.update({
         where: { id },

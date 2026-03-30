@@ -18,9 +18,26 @@ export const ourFileRouter = {
     .middleware(async ({ input, req }) => {
       const session = await getServerSession(authOptions);
       if (!session || !session.user) throw new Error("Unauthorized");
+      
+      const userId = (session.user as any).id;
+      const folderId = input.folderId;
+
+      // Permission Check
+      const folder = await prisma.folder.findUnique({
+        where: { id: folderId },
+        include: { accessList: { where: { userId } } }
+      });
+
+      if (!folder) throw new Error("Folder not found");
+      
+      const isOwner = folder.ownerId === userId;
+      const isEditor = folder.accessList.some(a => a.permission === "EDIT");
+
+      if (!isOwner && !isEditor) throw new Error("Unauthorized to upload to this folder");
+
       return { 
-        userId: (session.user as any).id, 
-        folderId: input.folderId,
+        userId, 
+        folderId,
         originalName: input.originalName,
         isEncoded: !!input.isEncoded,
       };

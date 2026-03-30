@@ -40,6 +40,20 @@ export async function GET(req: Request) {
 
     if (!folderId) return NextResponse.json({ message: "Missing id" }, { status: 400 });
 
+    const userId = (session.user as any).id;
+    const folder = await prisma.folder.findUnique({
+      where: { id: folderId },
+      include: { accessList: { where: { userId } } }
+    });
+
+    if (!folder) return NextResponse.json({ message: "Not found" }, { status: 404 });
+    const isOwner = folder.ownerId === userId;
+    const hasAccess = folder.accessList.length > 0 || folder.isPublic;
+
+    if (!isOwner && !hasAccess) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
+    }
+
     const manifest = await getFolderManifest(folderId);
     return NextResponse.json(manifest);
   } catch (error) {

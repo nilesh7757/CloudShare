@@ -11,6 +11,18 @@ export async function POST(req: Request) {
     const { folders, rootFolderId } = await req.json(); 
     const userId = (session.user as any).id;
     
+    // Permission check for root folder
+    if (rootFolderId) {
+      const rootFolder = await prisma.folder.findUnique({
+        where: { id: rootFolderId },
+        include: { accessList: { where: { userId } } }
+      });
+      if (!rootFolder) return NextResponse.json({ message: "Root folder not found" }, { status: 404 });
+      const isOwner = rootFolder.ownerId === userId;
+      const isEditor = rootFolder.accessList.some(a => a.permission === "EDIT");
+      if (!isOwner && !isEditor) return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
+    }
+
     // pathMap tracks: "folder/subfolder" -> "database_id"
     const pathMap: Record<string, string> = { "": rootFolderId || "" };
 
@@ -27,6 +39,8 @@ export async function POST(req: Request) {
         where: {
           name: f.name,
           parentId: parentId === "" ? null : parentId,
+          // If rootFolderId exists, we should use its ownerId or the current userId
+          // For now, new folders are owned by the creator (which could be an editor)
           ownerId: userId
         }
       });

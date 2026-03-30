@@ -22,9 +22,47 @@ export async function GET(req: Request) {
       }
     });
 
-    if (!folder || folder.ownerId !== userId) return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
+    if (!folder) return NextResponse.json({ message: "Not found" }, { status: 404 });
+    
+    // Allow owner OR anyone with access to see the list
+    const hasAccess = folder.ownerId === userId || folder.accessList.some(a => a.userId === userId);
+    if (!hasAccess) return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
 
-    return NextResponse.json(folder.accessList);
+    return NextResponse.json(folder);
+  } catch (error) {
+    return NextResponse.json({ message: "Internal server error" }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session || !session.user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+
+    const body = await req.json();
+    const { id, permission } = body;
+    const userId = (session.user as any).id;
+
+    const access = await prisma.folderAccess.findUnique({
+      where: { id },
+      include: { folder: { include: { accessList: { where: { userId } } } } }
+    });
+
+    if (!access) return NextResponse.json({ message: "Not found" }, { status: 404 });
+
+    const isOwner = access.folder.ownerId === userId;
+    const isEditor = access.folder.accessList.some(a => a.permission === "EDIT");
+
+    if (!isOwner && !isEditor) {
+      return NextResponse.json({ message: "Only owners and editors can change permissions" }, { status: 403 });
+    }
+
+    const updated = await prisma.folderAccess.update({
+      where: { id },
+      data: { permission }
+    });
+
+    return NextResponse.json(updated);
   } catch (error) {
     return NextResponse.json({ message: "Internal server error" }, { status: 500 });
   }
@@ -41,10 +79,17 @@ export async function DELETE(req: Request) {
 
     const access = await prisma.folderAccess.findUnique({
       where: { id: accessId as string },
-      include: { folder: true }
+      include: { folder: { include: { accessList: { where: { userId } } } } }
     });
 
-    if (!access || access.folder.ownerId !== userId) return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
+    if (!access) return NextResponse.json({ message: "Not found" }, { status: 404 });
+
+    const isOwner = access.folder.ownerId === userId;
+    const isEditor = access.folder.accessList.some(a => a.permission === "EDIT");
+
+    if (!isOwner && !isEditor) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
+    }
 
     await prisma.folderAccess.delete({ where: { id: accessId as string } });
     return NextResponse.json({ message: "Access removed" });

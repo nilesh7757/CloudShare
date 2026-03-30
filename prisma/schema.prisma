@@ -27,6 +27,8 @@ model Folder {
   name        String
   color       String?   @default("blue") // For custom folder colors
   isStarred   Boolean   @default(false)  // For pinning/favorites
+  viewToken   String?   @unique // For public view link
+  editToken   String?   @unique // For public edit link
   ownerId     String
   owner       User      @relation("Owner", fields: [ownerId], references: [id])
   parentId    String?   // For nested folders

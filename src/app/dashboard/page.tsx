@@ -43,6 +43,8 @@ function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const currentFolderId = searchParams.get("folderId") || "";
+  const viewToken = searchParams.get("viewToken") || "";
+  const editToken = searchParams.get("editToken") || "";
 
   const [folders, setFolders] = useState<any[]>([]);
   const [files, setFiles] = useState<any[]>([]);
@@ -53,6 +55,9 @@ function DashboardContent() {
   const [loading, setLoading] = useState(true);
   const [isZipping, setIsZipping] = useState(false);
   
+  // Link Permission (from URL)
+  const [linkPermission, setLinkPermission] = useState<"VIEW" | "EDIT" | null>(null);
+
   // New States for Intelligence
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<{folders: any[], files: any[]} | null>(null);
@@ -63,19 +68,23 @@ function DashboardContent() {
   const [shareEmail, setShareEmail] = useState("");
   const [sharePermission, setSharePermission] = useState<"VIEW" | "EDIT">("VIEW");
   const [sharingFolderId, setSharingFolderId] = useState<string | null>(null);
+  const [sharingFolderData, setSharingFolderData] = useState<any>(null);
   const [accessList, setAccessList] = useState<any[]>([]);
 
   useEffect(() => {
-    if (status === "unauthenticated") {
+    if (status === "unauthenticated" && !viewToken && !editToken) {
       router.push("/login");
-    } else if (status === "authenticated") {
+    } else if (status === "authenticated" || viewToken || editToken) {
       fetchData();
     }
-  }, [status, currentFolderId]);
+  }, [status, currentFolderId, viewToken, editToken]);
 
   useEffect(() => {
     if (sharingFolderId) {
       fetchAccessList();
+    } else {
+      setSharingFolderData(null);
+      setAccessList([]);
     }
   }, [sharingFolderId]);
 
@@ -96,18 +105,36 @@ function DashboardContent() {
   const fetchData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const parentParam = currentFolderId ? `?parentId=${currentFolderId}` : "";
-      const res = await fetch(`/api/folders${parentParam}`);
+      let url = "/api/folders";
+      if (viewToken) url += `?viewToken=${viewToken}`;
+      else if (editToken) url += `?editToken=${editToken}`;
+      else if (currentFolderId) url += `?parentId=${currentFolderId}`;
+
+      const res = await fetch(url);
       const data = await res.json();
+
+      if (!res.ok) {
+        if (viewToken || editToken) {
+          alert(data.message || "Link invalid");
+          router.push("/dashboard");
+          return;
+        }
+      }
+
       setFolders(data.folders || []);
       setFiles(data.files || []);
       
-      if (currentFolderId) {
+      if ((viewToken || editToken) && data.currentFolder) {
+        setCurrentFolderData(data.currentFolder);
+        setLinkPermission(data.linkPermission);
+      } else if (currentFolderId) {
         const folderDetailsRes = await fetch(`/api/folders/details?id=${currentFolderId}`);
         const folderDetails = await folderDetailsRes.json();
         setCurrentFolderData(folderDetails);
+        setLinkPermission(null);
       } else {
         setCurrentFolderData(null);
+        setLinkPermission(null);
       }
     } catch (err) {
       console.error(err);
@@ -139,7 +166,8 @@ function DashboardContent() {
     try {
       const res = await fetch(`/api/folders/access?id=${sharingFolderId}`);
       const data = await res.json();
-      setAccessList(data || []);
+      setSharingFolderData(data);
+      setAccessList(data.accessList || []);
     } catch (e) {
       console.error(e);
     }
@@ -149,6 +177,68 @@ function DashboardContent() {
     try {
       await fetch(`/api/folders/access?id=${accessId}`, { method: "DELETE" });
       fetchAccessList();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const updatePermission = async (accessId: string, permission: string) => {
+    try {
+      await fetch("/api/folders/access", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: accessId, permission }),
+      });
+      fetchAccessList();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const createFolder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFolderName) return;
+    try {
+      const res = await fetch("/api/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newFolderName, parentId: currentFolderId }),
+      });
+      if (res.ok) {
+        setNewFolderName("");
+        fetchData(true);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const deleteItem = async (id: string, type: "folder" | "file") => {
+    if (!confirm(`Are you sure you want to delete this ${type}?`)) return;
+    try {
+      const res = await fetch(`/api/delete?id=${id}&type=${type}`, { method: "DELETE" });
+      if (res.ok) fetchData(true);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const shareFolder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!shareEmail || !sharingFolderId) return;
+    try {
+      const res = await fetch("/api/folders/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: shareEmail, folderId: sharingFolderId, permission: sharePermission }),
+      });
+      if (res.ok) {
+        setShareEmail("");
+        fetchAccessList();
+      } else {
+        const data = await res.json();
+        alert(data.message || "Sharing failed");
+      }
     } catch (e) {
       console.error(e);
     }
@@ -173,67 +263,13 @@ function DashboardContent() {
     };
   }, [folders, files, sortBy]);
 
-  const createFolder = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newFolderName) return;
-    const folderName = newFolderName;
-    setNewFolderName("");
-    const tempId = Math.random().toString();
-    setFolders(prev => [...prev, { id: tempId, name: folderName, ownerId: (session?.user as any)?.id, isTemp: true, color: "blue" }]);
-    try {
-      const res = await fetch("/api/folders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: folderName, parentId: currentFolderId || null }),
-      });
-      if (res.ok) {
-        const newFolder = await res.json();
-        setFolders(prev => prev.map(f => f.id === tempId ? newFolder : f));
-      } else {
-        setFolders(prev => prev.filter(f => f.id !== tempId));
-      }
-    } catch (err) {
-      setFolders(prev => prev.filter(f => f.id !== tempId));
-    }
-  };
-
-  const deleteItem = async (id: string, type: "folder" | "file") => {
-    if (!confirm(`Permanently delete this ${type}?`)) return;
-    if (type === "folder") setFolders(prev => prev.filter(f => f.id !== id));
-    else setFiles(prev => prev.filter(f => f.id !== id));
-    try {
-      const res = await fetch(`/api/delete?id=${id}&type=${type}`, { method: "DELETE" });
-      if (!res.ok) fetchData();
-    } catch (err) {
-      fetchData();
-    }
-  };
-
-  const shareFolder = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!shareEmail || !sharingFolderId) return;
-    const res = await fetch("/api/folders/share", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        email: shareEmail, 
-        folderId: sharingFolderId, 
-        permission: sharePermission 
-      }),
-    });
-    if (res.ok) {
-      alert("Shared successfully");
-      setShareEmail("");
-      fetchAccessList();
-    } else {
-      const data = await res.json();
-      alert(data.message);
-    }
-  };
-
-  const copyShareLink = (folderId: string) => {
-    navigator.clipboard.writeText(`${window.location.origin}/dashboard?folderId=${folderId}`);
-    alert("Link copied!");
+  const copyLink = (type: "VIEW" | "EDIT") => {
+    if (!sharingFolderData) return;
+    const urlParam = type === "VIEW" ? "viewToken" : "editToken";
+    const link = `${window.location.origin}/dashboard?${urlParam}=${sharingFolderData.id}`;
+    
+    navigator.clipboard.writeText(link);
+    alert(`${type} Link copied!`);
   };
 
   const handleDrop = async (e: React.DragEvent, targetFolderId: string) => {
@@ -255,7 +291,12 @@ function DashboardContent() {
     }
   };
 
-  const getDownloadUrl = (file: any) => `/api/files/download?key=${file.key}`;
+  const getDownloadUrl = (file: any) => {
+    let url = `/api/files/download?key=${file.key}`;
+    if (viewToken) url += `&viewToken=${viewToken}`;
+    if (editToken) url += `&editToken=${editToken}`;
+    return url;
+  };
 
   const handlePreview = async (file: any) => {
     setPreviewFile(file);
@@ -343,6 +384,15 @@ function DashboardContent() {
   const isCpp = (name: string) => /\.(cpp|h|hpp|c|cc)$/i.test(name);
   const isMD = (name: string) => /\.md$/i.test(name);
 
+  const navigateToFolder = (id: string) => {
+    let url = `/dashboard?folderId=${id}`;
+    if (viewToken) url += `&viewToken=${viewToken}`;
+    if (editToken) url += `&editToken=${editToken}`;
+    router.push(url);
+    setFolders([]);
+    setFiles([]);
+  };
+
   const displayFolders = searchResults ? searchResults.folders : sortedItems.folders;
   const displayFiles = searchResults ? searchResults.files : sortedItems.files;
 
@@ -425,7 +475,7 @@ function DashboardContent() {
             return (
               <div
                 key={folder.id}
-                onClick={() => { router.push(`/dashboard?folderId=${folder.id}`); setFolders([]); setFiles([]); }}
+                onClick={() => navigateToFolder(folder.id)}
                 className={`group relative bg-[#111] p-4 rounded-2xl border border-gray-800 hover:border-${config.name}-500/50 hover:bg-[#161616] transition-all cursor-pointer active:scale-[0.98] shadow-sm`}
               >
                 <div className="flex items-center gap-3">
@@ -445,10 +495,11 @@ function DashboardContent() {
                   className="absolute top-4 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <button onClick={() => updateMetadata(folder.id, "folder", { isStarred: !folder.isStarred })} className={`p-1.5 rounded-lg hover:bg-[#222] ${folder.isStarred ? 'text-amber-400' : 'text-gray-500'}`}><Star size={14} fill={folder.isStarred ? "currentColor" : "none"} /></button>
-                  <button onClick={() => setActiveColorPicker(activeColorPicker === folder.id ? null : folder.id)} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500"><Palette size={14} /></button>
-                  <button onClick={() => downloadFolder(folder)} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500 hover:text-white"><Download size={14} /></button>
-                  {folder.ownerId === userId && <button onClick={() => deleteItem(folder.id, "folder")} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500 hover:text-red-500"><Trash2 size={14} /></button>}
+                  <button onClick={() => updateMetadata(folder.id, "folder", { isStarred: !folder.isStarred })} className={`p-1.5 rounded-lg hover:bg-[#222] ${folder.isStarred ? 'text-amber-400' : 'text-gray-500'}`} title="Favorite"><Star size={14} fill={folder.isStarred ? "currentColor" : "none"} /></button>
+                  <button onClick={() => setActiveColorPicker(activeColorPicker === folder.id ? null : folder.id)} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500" title="Change Color"><Palette size={14} /></button>
+                  <button onClick={() => downloadFolder(folder)} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500 hover:text-white" title="Download ZIP"><Download size={14} /></button>
+                  <button onClick={() => setSharingFolderId(folder.id)} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500 hover:text-blue-400" title="Manage Access"><Share2 size={14} /></button>
+                  <button onClick={() => deleteItem(folder.id, "folder")} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500 hover:text-red-500" title="Delete"><Trash2 size={14} /></button>
                 </div>
 
                 {activeColorPicker === folder.id && (
@@ -505,12 +556,41 @@ function DashboardContent() {
       {sharingFolderId && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[#111] border border-gray-800 p-6 rounded-[2.5rem] max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center mb-8">
+            <div className="flex justify-between items-center mb-6">
               <div>
                 <h3 className="text-xl font-black text-white uppercase tracking-tighter">Manage Access</h3>
-                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Folder Permissions</p>
+                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">{sharingFolderData?.name || "Folder"}</p>
               </div>
               <button onClick={() => setSharingFolderId(null)} className="p-2 hover:bg-[#222] rounded-full transition"><X size={20} className="text-gray-500 hover:text-white" /></button>
+            </div>
+
+            {/* Public Link Section */}
+            <div className="mb-8 space-y-4">
+              <div className="p-4 bg-[#1a1a1a] rounded-2xl border border-gray-800">
+                <div className="flex items-center gap-2 mb-2">
+                  <Eye size={16} className="text-blue-500" />
+                  <p className="text-xs font-bold text-gray-200">View-Only Link</p>
+                </div>
+                <button 
+                  onClick={() => copyLink("VIEW")}
+                  className="mt-2 w-full py-2 bg-[#222] hover:bg-[#2a2a2a] text-blue-400 text-[10px] font-black uppercase tracking-widest rounded-xl transition flex items-center justify-center gap-2"
+                >
+                  <LinkIcon size={12} /> Copy View Link
+                </button>
+              </div>
+
+              <div className="p-4 bg-[#1a1a1a] rounded-2xl border border-gray-800">
+                <div className="flex items-center gap-2 mb-2">
+                  <Plus size={16} className="text-purple-500" />
+                  <p className="text-xs font-bold text-gray-200">Edit Access Link</p>
+                </div>
+                <button 
+                  onClick={() => copyLink("EDIT")}
+                  className="mt-2 w-full py-2 bg-[#222] hover:bg-[#2a2a2a] text-purple-400 text-[10px] font-black uppercase tracking-widest rounded-xl transition flex items-center justify-center gap-2"
+                >
+                  <LinkIcon size={12} /> Copy Edit Link
+                </button>
+              </div>
             </div>
 
             <form onSubmit={shareFolder} className="space-y-4 mb-8">
@@ -528,10 +608,10 @@ function DashboardContent() {
               <p className="text-[10px] text-gray-600 font-black uppercase tracking-[0.2em] mb-4">People with access</p>
               <div className="flex items-center justify-between p-3 bg-[#0a0a0a] rounded-2xl border border-white/5">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-500 font-bold text-xs uppercase">{session?.user?.email?.[0] || "O"}</div>
+                  <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-500 font-bold text-xs uppercase">{sharingFolderData?.owner?.email?.[0] || "O"}</div>
                   <div>
-                    <p className="text-xs font-bold text-gray-200">You (Owner)</p>
-                    <p className="text-[10px] text-gray-500">{session?.user?.email}</p>
+                    <p className="text-xs font-bold text-gray-200">Owner</p>
+                    <p className="text-[10px] text-gray-500">{sharingFolderData?.owner?.email}</p>
                   </div>
                 </div>
               </div>
@@ -539,13 +619,19 @@ function DashboardContent() {
                 <div key={access.id} className="flex items-center justify-between p-3 bg-[#161616] rounded-2xl border border-gray-800/50 group">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-gray-400 font-bold text-xs uppercase">{access.user.email[0]}</div>
-                    <div>
-                      <p className="text-xs font-bold text-gray-200">{access.user.name || "Collaborator"}</p>
-                      <p className="text-[10px] text-gray-500">{access.user.email}</p>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-gray-200 truncate">{access.user.email}</p>
+                      <select 
+                        value={access.permission} 
+                        onChange={(e) => updatePermission(access.id, e.target.value)}
+                        className="bg-transparent text-[9px] font-black uppercase text-gray-500 hover:text-blue-400 focus:outline-none cursor-pointer"
+                      >
+                        <option value="VIEW">Viewer</option>
+                        <option value="EDIT">Editor</option>
+                      </select>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className={`text-[9px] font-black px-2 py-1 rounded-md ${access.permission === 'EDIT' ? 'bg-purple-500/10 text-purple-400' : 'bg-blue-500/10 text-blue-400'}`}>{access.permission}</span>
                     <button onClick={() => removeAccess(access.id)} className="p-1 text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14} /></button>
                   </div>
                 </div>

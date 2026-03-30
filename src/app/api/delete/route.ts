@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { deleteDriveFile } from "@/lib/googleDrive";
+import { hasFolderPermission, hasFilePermission } from "@/lib/permissions";
 
 async function getAllNestedItems(folderId: string): Promise<{ folderIds: string[], fileKeys: string[], fileIds: string[] }> {
   let folderIds = [folderId];
@@ -41,17 +42,12 @@ export async function DELETE(req: Request) {
     const userId = (session.user as any).id;
 
     if (type === "folder") {
-      const folder = await prisma.folder.findUnique({
-        where: { id },
-      });
+      const folderExists = await prisma.folder.findUnique({ where: { id } });
+      if (!folderExists) return new Response("Not found", { status: 404 });
 
-      if (!folder) return new Response("Not found", { status: 404 });
-      
-      // Check if user is owner OR has access via shared folder
-      const isOwner = folder.ownerId === userId;
-      
-      if (!isOwner) {
-        return new Response("Only owners can delete folders", { status: 403 });
+      const hasEditAccess = await hasFolderPermission(id, userId, "EDIT");
+      if (!hasEditAccess) {
+        return new Response("Only owners and editors can delete folders", { status: 403 });
       }
 
       // 1. Get EVERY nested item recursively
@@ -74,14 +70,11 @@ export async function DELETE(req: Request) {
       ]);
       
     } else {
-      const file = await prisma.file.findUnique({
-        where: { id },
-        include: { folder: true }
-      });
-
+      const file = await prisma.file.findUnique({ where: { id } });
       if (!file) return new Response("Not found", { status: 404 });
 
-      if (file.ownerId !== userId && file.folder.ownerId !== userId) {
+      const hasEditAccess = await hasFilePermission(id, userId, "EDIT");
+      if (!hasEditAccess) {
         return new Response("Unauthorized", { status: 403 });
       }
 
