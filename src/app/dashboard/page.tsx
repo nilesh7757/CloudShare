@@ -407,17 +407,29 @@ function DashboardContent() {
       
       <UploadSidebar />
 
-      <nav className="bg-[#111] border-b border-gray-800 p-4 flex justify-between items-center sticky top-0 z-50 gap-4">
-        <h1 className="text-xl font-bold text-blue-500 tracking-tight shrink-0">CloudShare</h1>
+      <nav className="bg-[#111] border-b border-gray-800 p-3 sm:p-4 flex flex-col sm:flex-row justify-between items-center sticky top-0 z-50 gap-3 sm:gap-4">
+        <div className="flex items-center justify-between w-full sm:w-auto">
+          <h1 className="text-xl font-bold text-blue-500 tracking-tight shrink-0">CloudShare</h1>
+          
+          <div className="flex sm:hidden items-center gap-2">
+            <button onClick={() => openSidebar(true)} className="relative p-2 hover:bg-[#1a1a1a] rounded-lg transition">
+              <Clock size={20} className={activeUploads > 0 ? "text-blue-500 animate-pulse" : "text-gray-400"} />
+              {activeUploads > 0 && <span className="absolute top-0 right-0 w-4 h-4 bg-blue-600 text-[10px] font-bold rounded-full flex items-center justify-center">{activeUploads}</span>}
+            </button>
+            <button onClick={() => signOut()} className="p-2 text-gray-400 hover:text-white transition">
+              <LogOut size={20} />
+            </button>
+          </div>
+        </div>
         
-        <div className="flex-1 max-w-xl relative group">
+        <div className="flex-1 w-full max-w-xl relative group order-last sm:order-none">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-blue-500 transition-colors" size={18} />
           <input 
             type="text" 
             placeholder="Search files and folders..." 
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all shadow-inner"
+            className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl py-2.5 sm:py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all shadow-inner"
           />
           {searchQuery && (
             <button onClick={() => setSearchQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
@@ -426,12 +438,12 @@ function DashboardContent() {
           )}
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+        <div className="hidden sm:flex items-center gap-2 sm:gap-4 shrink-0">
           <button onClick={() => openSidebar(true)} className="relative p-2 hover:bg-[#1a1a1a] rounded-lg transition">
             <Clock size={20} className={activeUploads > 0 ? "text-blue-500 animate-pulse" : "text-gray-400"} />
             {activeUploads > 0 && <span className="absolute top-0 right-0 w-4 h-4 bg-blue-600 text-[10px] font-bold rounded-full flex items-center justify-center">{activeUploads}</span>}
           </button>
-          <button onClick={() => signOut()} className="text-sm text-gray-400 hover:text-white transition hidden sm:flex items-center gap-1">
+          <button onClick={() => signOut()} className="text-sm text-gray-400 hover:text-white transition flex items-center gap-1">
             <LogOut size={16} /> Logout
           </button>
         </div>
@@ -492,14 +504,16 @@ function DashboardContent() {
                 </div>
 
                 <div 
-                  className="absolute top-4 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0"
+                  className="absolute top-4 right-2 flex gap-1 sm:opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <button onClick={() => updateMetadata(folder.id, "folder", { isStarred: !folder.isStarred })} className={`p-1.5 rounded-lg hover:bg-[#222] ${folder.isStarred ? 'text-amber-400' : 'text-gray-500'}`} title="Favorite"><Star size={14} fill={folder.isStarred ? "currentColor" : "none"} /></button>
-                  <button onClick={() => setActiveColorPicker(activeColorPicker === folder.id ? null : folder.id)} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500" title="Change Color"><Palette size={14} /></button>
-                  <button onClick={() => downloadFolder(folder)} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500 hover:text-white" title="Download ZIP"><Download size={14} /></button>
-                  <button onClick={() => setSharingFolderId(folder.id)} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500 hover:text-blue-400" title="Manage Access"><Share2 size={14} /></button>
-                  <button onClick={() => deleteItem(folder.id, "folder")} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500 hover:text-red-500" title="Delete"><Trash2 size={14} /></button>
+                  <div className="flex sm:flex gap-1">
+                    <button onClick={() => updateMetadata(folder.id, "folder", { isStarred: !folder.isStarred })} className={`p-1.5 rounded-lg hover:bg-[#222] ${folder.isStarred ? 'text-amber-400' : 'text-gray-500'} hidden sm:block`} title="Favorite"><Star size={14} fill={folder.isStarred ? "currentColor" : "none"} /></button>
+                    <button onClick={() => setActiveColorPicker(activeColorPicker === folder.id ? null : folder.id)} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500 hidden sm:block" title="Change Color"><Palette size={14} /></button>
+                    <button onClick={() => downloadFolder(folder)} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500 hover:text-white hidden sm:block" title="Download ZIP"><Download size={14} /></button>
+                    <button onClick={() => setSharingFolderId(folder.id)} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500 hover:text-blue-400" title="Manage Access"><Share2 size={14} /></button>
+                    <button onClick={() => deleteItem(folder.id, "folder")} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500 hover:text-red-500" title="Delete"><Trash2 size={14} /></button>
+                  </div>
                 </div>
 
                 {activeColorPicker === folder.id && (

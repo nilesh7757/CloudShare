@@ -9,7 +9,7 @@ export const UploadSidebar = () => {
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
 
   return (
-    <div className={`fixed top-0 right-0 h-full w-80 bg-[#0a0a0a] border-l border-gray-800 shadow-2xl z-[100] transition-transform duration-300 transform ${isSidebarOpen ? 'translate-x-0 pointer-events-auto' : 'translate-x-full pointer-events-none'}`}>
+    <div className={`fixed top-0 right-0 h-full w-full sm:w-80 bg-[#0a0a0a] border-l border-gray-800 shadow-2xl z-[100] transition-transform duration-300 transform ${isSidebarOpen ? 'translate-x-0 pointer-events-auto' : 'translate-x-full pointer-events-none'}`}>
       <div className="p-4 border-b border-gray-800 flex justify-between items-center bg-[#111]">
         <h3 className="font-bold text-white flex items-center gap-2">
           <Clock size={18} className="text-blue-500" />
@@ -18,13 +18,13 @@ export const UploadSidebar = () => {
         <div className="flex items-center gap-2">
           <button 
             onClick={clearQueue}
-            className="p-1.5 hover:bg-red-500/10 text-gray-500 hover:text-red-500 rounded-lg transition"
+            className="p-2.5 sm:p-1.5 hover:bg-red-500/10 text-gray-500 hover:text-red-500 rounded-lg transition"
             title="Clear Finished"
           >
-            <Trash2 size={16} />
+            <Trash2 size={20} className="sm:w-4 sm:h-4" />
           </button>
-          <button onClick={() => setIsSidebarOpen(false)} className="p-1 hover:bg-gray-800 rounded-lg text-gray-400">
-            <X size={20} />
+          <button onClick={() => setIsSidebarOpen(false)} className="p-2 sm:p-1 hover:bg-gray-800 rounded-lg text-gray-400">
+            <X size={24} className="sm:w-5 sm:h-5" />
           </button>
         </div>
       </div>
