@@ -2,9 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
-import { UTApi } from "uploadthing/server";
-
-const utapi = new UTApi();
+import { deleteDriveFile } from "@/lib/googleDrive";
 
 async function getAllNestedItems(folderId: string): Promise<{ folderIds: string[], fileKeys: string[], fileIds: string[] }> {
   let folderIds = [folderId];
@@ -59,9 +57,9 @@ export async function DELETE(req: Request) {
       // 1. Get EVERY nested item recursively
       const { folderIds, fileKeys, fileIds } = await getAllNestedItems(id);
       
-      // 2. Delete all files from UploadThing cloud
+      // 2. Delete all files from Google Drive cloud
       if (fileKeys.length > 0) {
-        await utapi.deleteFiles(fileKeys);
+        await Promise.all(fileKeys.map(key => deleteDriveFile(key).catch(e => console.error(`Failed to delete ${key}:`, e.message))));
       }
 
       // 3. Delete everything from DB in correct order
@@ -84,13 +82,13 @@ export async function DELETE(req: Request) {
       }
 
       if (file.key) {
-        await utapi.deleteFiles(file.key);
+        await deleteDriveFile(file.key).catch(e => console.error(`Failed to delete ${file.key}:`, e.message));
       }
 
       await prisma.file.delete({ where: { id } });
     }
 
-    return NextResponse.json({ message: "Recursive deletion complete" });
+    return NextResponse.json({ message: "Recursive deletion complete from Google Drive" });
   } catch (error) {
     console.error("Delete error:", error);
     return NextResponse.json({ message: "Internal server error" }, { status: 500 });

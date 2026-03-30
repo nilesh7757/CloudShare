@@ -25,6 +25,8 @@ model User {
 model Folder {
   id          String    @id @default(cuid())
   name        String
+  color       String?   @default("blue") // For custom folder colors
+  isStarred   Boolean   @default(false)  // For pinning/favorites
   ownerId     String
   owner       User      @relation("Owner", fields: [ownerId], references: [id])
   parentId    String?   // For nested folders
@@ -42,6 +44,7 @@ model File {
   url         String    // URL from UploadThing
   key         String    // Unique key from UploadThing for deletion
   isEncoded   Boolean   @default(false)
+  isStarred   Boolean   @default(false)
   size        Int
   folderId    String
   folder      Folder    @relation(fields: [folderId], references: [id])

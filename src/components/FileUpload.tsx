@@ -1,6 +1,5 @@
 "use client";
 
-import { useUploadThing } from "@/lib/uploadthing";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { FolderUp, Loader2, FileUp, CheckCircle2, ShieldCheck, Cpu } from "lucide-react";
 import { useUploadQueue } from "./providers/UploadContext";
@@ -21,12 +20,79 @@ export const FileUpload = ({ folderId, onUploadComplete }: FileUploadProps) => {
     onCompleteRef.current = onUploadComplete;
   }, [onUploadComplete]);
 
-  const { startUpload } = useUploadThing("fileUploader");
+  // CHUNKED PROXY UPLOADER (BYPASSES ALL LIMITS)
+  const uploadToGoogleDrive = async (file: File, job: any, fileMeta: any) => {
+    try {
+      // 1. Initialize the session via our server
+      const initRes = await fetch("/api/files/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "INIT", name: file.name })
+      });
+      const { uploadUrl } = await initRes.json();
+
+      // 2. Slicing and Streaming (4MB chunks to stay safe on Vercel)
+      const CHUNK_SIZE = 4 * 1024 * 1024;
+      const totalSize = file.size;
+      let driveFileId = "";
+
+      for (let start = 0; start < totalSize; start += CHUNK_SIZE) {
+        const end = Math.min(start + CHUNK_SIZE, totalSize);
+        const chunk = file.slice(start, end);
+        
+        // Convert chunk to base64 to send via JSON
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve) => {
+          reader.onload = () => resolve((reader.result as string).split(',')[1]);
+          reader.readAsDataURL(chunk);
+        });
+        const base64Chunk = await base64Promise;
+
+        const chunkRes = await fetch("/api/files/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "CHUNK",
+            uploadUrl,
+            chunk: base64Chunk,
+            range: `bytes ${start}-${end - 1}/${totalSize}`,
+          })
+        });
+
+        const chunkData = await chunkRes.json();
+        if (chunkRes.status !== 200 && chunkRes.status !== 308) {
+          throw new Error(chunkData.message || "Chunk failed");
+        }
+
+        if (chunkRes.status === 200 || chunkRes.status === 201) {
+          driveFileId = chunkData.data.id;
+        }
+      }
+
+      // 3. Finalize in Database
+      await fetch("/api/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify([{
+          name: fileMeta.originalName || file.name,
+          url: `https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`,
+          key: driveFileId,
+          size: file.size,
+          folderId: fileMeta.targetId,
+          isEncoded: !!fileMeta.isEncoded
+        }])
+      });
+
+      return driveFileId;
+    } catch (err) {
+      console.error("Chunked Upload Error:", err);
+      throw err;
+    }
+  };
 
   const runUploadTask = useCallback(async (task: any) => {
     const { job, files, folderId: targetRootId, type } = task;
     updateJob(job.id, { status: "uploading" });
-    
     const fileList = Array.from(files as File[]);
     let idMap: Record<string, string> = {};
 
@@ -34,8 +100,6 @@ export const FileUpload = ({ folderId, onUploadComplete }: FileUploadProps) => {
       if (type === "folder") {
         const folderObjects: any[] = [];
         const seenPaths = new Set<string>();
-        
-        // Use job.files which has the preserved path metadata
         for (const fileMeta of job.files) {
           const parts = fileMeta.path.split("/");
           parts.pop(); 
@@ -59,62 +123,50 @@ export const FileUpload = ({ folderId, onUploadComplete }: FileUploadProps) => {
       }
 
       let completedCount = 0;
-      const BATCH_SIZE = 3; 
-      
-      for (let i = 0; i < fileList.length; i += BATCH_SIZE) {
-        const chunk = fileList.slice(i, i + BATCH_SIZE);
-        
-        for (const file of chunk) {
-          // Find the preserved path for this specific file
-          const fileMeta = job.files.find((f: any) => f.name === file.name);
-          const preservedPath = fileMeta?.path || "";
-          
-          const pathParts = preservedPath.split("/");
-          pathParts.pop();
-          const path = pathParts.join("/");
-          const actualTargetId = idMap[path] || targetRootId;
+      for (const file of fileList) {
+        const fileMeta = job.files.find((f: any) => f.name === file.name);
+        const pathParts = (fileMeta?.path || "").split("/");
+        pathParts.pop();
+        const path = pathParts.join("/");
+        const actualTargetId = idMap[path] || targetRootId;
 
-          const isSuspicious = !file.name.includes('.') || file.name.endsWith('.sh');
-          let fileToUpload = file;
-          let originalName = file.name;
-          let isEncoded = false;
+        const isSuspicious = !file.name.includes('.') || file.name.endsWith('.sh');
+        let fileToUpload = file;
+        let originalName = file.name;
+        let isEncoded = false;
 
-          if (isSuspicious) {
-            const b64Data = await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve((reader.result as string).split(',')[1]);
-              reader.readAsDataURL(file);
-            });
-            fileToUpload = new File([b64Data], `${file.name}.stealth.txt`, { type: 'text/plain' });
-            isEncoded = true;
-          }
-
-          try {
-            await startUpload([fileToUpload], { folderId: actualTargetId, originalName, isEncoded });
-            completedCount++;
-            
-            // UI Update for the specific job
-            const updatedFiles = job.files.map((f: any) => 
-              f.name === file.name ? { ...f, status: "completed" } : f
-            );
-            updateJob(job.id, { 
-              completedFiles: completedCount, 
-              progress: Math.round((completedCount / fileList.length) * 100),
-              files: updatedFiles
-            });
-          } catch (e) {
-            console.error(e);
-          }
+        if (isSuspicious) {
+          const b64Data = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve((reader.result as string).split(',')[1]);
+            reader.readAsDataURL(file);
+          });
+          fileToUpload = new File([b64Data], `${file.name}.stealth.txt`, { type: 'text/plain' });
+          isEncoded = true;
         }
-        onCompleteRef.current(true);
+
+        try {
+          await uploadToGoogleDrive(fileToUpload, job, { targetId: actualTargetId, originalName, isEncoded });
+          completedCount++;
+          const updatedFiles = job.files.map((f: any) => f.name === file.name ? { ...f, status: "completed" } : f);
+          updateJob(job.id, { 
+            completedFiles: completedCount, 
+            progress: Math.round((completedCount / fileList.length) * 100),
+            files: updatedFiles
+          });
+          onCompleteRef.current(true);
+        } catch (e) {
+          console.error(e);
+        }
       }
       
       updateJob(job.id, { status: "completed", progress: 100 });
+      onCompleteRef.current(true);
     } catch (err) {
       console.error(err);
       updateJob(job.id, { status: "failed" });
     }
-  }, [startUpload, updateJob]);
+  }, [updateJob]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -136,9 +188,9 @@ export const FileUpload = ({ folderId, onUploadComplete }: FileUploadProps) => {
         <div className="p-4 bg-blue-500/10 rounded-full mb-4">
           <FolderUp size={40} className="text-blue-500" />
         </div>
-        <h3 className="text-xl font-bold text-white mb-2">Resilient Background Sync</h3>
+        <h3 className="text-xl font-bold text-white mb-2">Google Drive Sync (15GB)</h3>
         <p className="text-sm text-gray-500 max-w-[250px]">
-          Uploads persist through page refreshes. Track progress in the right sidebar.
+          Chunked Direct Bridge enabled. Bypass all size and CORS limits.
         </p>
       </div>
 
@@ -151,7 +203,7 @@ export const FileUpload = ({ folderId, onUploadComplete }: FileUploadProps) => {
             e.target.value = "";
           }
         }} className="hidden" {...({ webkitdirectory: "", directory: "", multiple: true } as any)} />
-        <button onClick={() => folderInputRef.current?.click()} className="flex-1 flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-2xl font-bold transition-all shadow-lg active:scale-95 disabled:opacity-50">
+        <button onClick={() => folderInputRef.current?.click()} className="flex-1 flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-2xl font-bold transition-all shadow-lg active:scale-95">
           <FolderUp size={20} />
           Queue Folder
         </button>
@@ -163,7 +215,7 @@ export const FileUpload = ({ folderId, onUploadComplete }: FileUploadProps) => {
             e.target.value = "";
           }
         }} multiple className="hidden" />
-        <button onClick={() => fileInputRef.current?.click()} className="flex-1 flex items-center justify-center gap-3 bg-[#1a1a1a] hover:bg-[#252525] text-gray-300 border border-gray-800 px-6 py-4 rounded-2xl font-bold transition active:scale-95 disabled:opacity-50">
+        <button onClick={() => fileInputRef.current?.click()} className="flex-1 flex items-center justify-center gap-3 bg-[#1a1a1a] hover:bg-[#252525] text-gray-300 border border-gray-800 px-6 py-4 rounded-2xl font-bold transition active:scale-95">
           <FileUp size={20} />
           Queue Files
         </button>
