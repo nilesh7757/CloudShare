@@ -25,7 +25,7 @@ interface UploadContextType {
   setIsSidebarOpen: (open: boolean) => void;
   updateJob: (id: string, updates: Partial<UploadJob>) => void;
   removeJob: (id: string) => void;
-  clearQueue: () => void;
+  clearQueue: (force?: boolean) => void;
 }
 
 const UploadContext = createContext<UploadContextType | undefined>(undefined);
@@ -74,7 +74,16 @@ export const UploadProvider = ({ children }: { children: ReactNode }) => {
     del(`files_${id}`);
   };
 
-  const clearQueue = () => {
+  const clearQueue = (force = false) => {
+    if (force) {
+      // Emergency Clear: Wipe everything
+      setQueue([]);
+      (window as any)._pendingUploads = [];
+      // Clear all file storage from IndexedDB
+      queue.forEach(j => del(`files_${j.id}`));
+      return;
+    }
+
     const finishedIds = queue
       .filter(j => j.status === "completed" || j.status === "failed")
       .map(j => j.id);

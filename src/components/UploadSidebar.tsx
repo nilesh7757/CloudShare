@@ -17,7 +17,18 @@ export const UploadSidebar = () => {
         </h3>
         <div className="flex items-center gap-2">
           <button 
-            onClick={clearQueue}
+            onClick={() => {
+              if (confirm("Force clear ALL uploads? This will stop active transfers.")) {
+                clearQueue(true);
+              }
+            }}
+            className="p-2.5 sm:p-1.5 hover:bg-orange-500/10 text-orange-500/50 hover:text-orange-500 rounded-lg transition"
+            title="Emergency Clear"
+          >
+            <Clock size={20} className="sm:w-4 sm:h-4" />
+          </button>
+          <button 
+            onClick={() => clearQueue(false)}
             className="p-2.5 sm:p-1.5 hover:bg-red-500/10 text-gray-500 hover:text-red-500 rounded-lg transition"
             title="Clear Finished"
           >

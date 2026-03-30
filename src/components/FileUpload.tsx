@@ -171,15 +171,31 @@ export const FileUpload = ({ folderId, onUploadComplete }: FileUploadProps) => {
 
   useEffect(() => {
     const interval = setInterval(async () => {
-      if (isRunningRef.current) return;
-      const pending = (window as any)._pendingUploads;
-      if (pending && pending.length > 0) {
-        isRunningRef.current = true;
-        const task = pending.shift();
-        await runUploadTask(task);
+      try {
+        if (isRunningRef.current) return;
+        
+        const pending = (window as any)._pendingUploads;
+        if (pending && pending.length > 0) {
+          isRunningRef.current = true;
+          // Peak at the first task
+          const task = pending[0];
+          
+          try {
+            await runUploadTask(task);
+            // Successfully processed, remove it
+            (window as any)._pendingUploads.shift();
+          } catch (taskError) {
+            console.error("Task execution failed, removing from queue to prevent block:", taskError);
+            (window as any)._pendingUploads.shift();
+          } finally {
+            isRunningRef.current = false;
+          }
+        }
+      } catch (globalError) {
+        console.error("Global upload processor error:", globalError);
         isRunningRef.current = false;
       }
-    }, 1500);
+    }, 2000);
     return () => clearInterval(interval);
   }, [runUploadTask]);
 
