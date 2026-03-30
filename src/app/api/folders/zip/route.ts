@@ -48,7 +48,8 @@ export async function GET(req: Request) {
 
     if (!folder) return NextResponse.json({ message: "Not found" }, { status: 404 });
     const isOwner = folder.ownerId === userId;
-    const hasAccess = folder.accessList.length > 0 || folder.isPublic;
+    const isPublic = !!(folder.viewToken || folder.editToken);
+    const hasAccess = folder.accessList.length > 0 || isPublic;
 
     if (!isOwner && !hasAccess) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
