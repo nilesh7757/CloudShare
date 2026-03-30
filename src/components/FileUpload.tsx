@@ -31,8 +31,8 @@ export const FileUpload = ({ folderId, onUploadComplete }: FileUploadProps) => {
       });
       const { uploadUrl } = await initRes.json();
 
-      // 2. Slicing and Streaming (4MB chunks to stay safe on Vercel)
-      const CHUNK_SIZE = 4 * 1024 * 1024;
+      // 2. Slicing and Streaming (2MB chunks to stay safe on Vercel)
+      const CHUNK_SIZE = 2 * 1024 * 1024;
       const totalSize = file.size;
       let driveFileId = "";
 
