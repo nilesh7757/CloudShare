@@ -5,7 +5,7 @@ export async function hasFolderPermission(folderId: string | null, userId: strin
   let currentId: string | null = folderId;
 
   while (currentId) {
-    const folder = await prisma.folder.findUnique({
+    const folderRecord: any = await prisma.folder.findUnique({
       where: { id: currentId },
       include: {
         accessList: {
@@ -14,20 +14,20 @@ export async function hasFolderPermission(folderId: string | null, userId: strin
       }
     });
 
-    if (!folder) break;
+    if (!folderRecord) break;
 
     // 1. Check Owner
-    if (folder.ownerId === userId) return true;
+    if (folderRecord.ownerId === userId) return true;
 
     // 2. Check explicit share
-    const access = folder.accessList[0];
+    const access = folderRecord.accessList[0];
     if (access) {
       if (requiredPermission === "VIEW") return true; // VIEW or EDIT allows VIEW
       if (access.permission === "EDIT") return true;  // EDIT allows everything
     }
 
     // 3. Go up
-    currentId = folder.parentId;
+    currentId = folderRecord.parentId;
   }
 
   return false;
