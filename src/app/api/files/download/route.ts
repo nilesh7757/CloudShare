@@ -18,7 +18,7 @@ async function isDescendantOf(childId: string, ancestorId: string): Promise<bool
   let currentId: string | null = childId;
   while (currentId) {
     if (currentId === ancestorId) return true;
-    const folderRecord = await prisma.folder.findUnique({
+    const folderRecord: { parentId: string | null } | null = await prisma.folder.findUnique({
       where: { id: currentId },
       select: { parentId: true }
     });
