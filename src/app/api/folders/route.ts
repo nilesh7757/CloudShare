@@ -49,10 +49,19 @@ export async function POST(req: Request) {
       },
     });
 
+    console.log("Folder created successfully:", folder.id);
     return NextResponse.json(folder, { status: 201 });
-  } catch (error) {
-    console.error("Folder creation error:", error);
-    return NextResponse.json({ message: "Internal server error" }, { status: 500 });
+  } catch (error: any) {
+    console.error("Folder creation error details:", {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      meta: error.meta
+    });
+    return NextResponse.json({ 
+      message: "Internal server error", 
+      details: process.env.NODE_ENV === "development" ? error.message : undefined 
+    }, { status: 500 });
   }
 }
 
