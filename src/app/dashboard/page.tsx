@@ -48,8 +48,6 @@ function DashboardContent() {
   const [files, setFiles] = useState<any[]>([]);
   const [currentFolderData, setCurrentFolderData] = useState<any>(null);
   const [newFolderName, setNewFolderName] = useState("");
-  const [shareEmail, setShareEmail] = useState("");
-  const [sharingFolderId, setSharingFolderId] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<any | null>(null);
   const [previewContent, setPreviewContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,6 +59,12 @@ function DashboardContent() {
   const [sortBy, setSortType] = useState<"name" | "date" | "size">("name");
   const [activeColorPicker, setActiveColorPicker] = useState<string | null>(null);
 
+  // Sharing & Access States
+  const [shareEmail, setShareEmail] = useState("");
+  const [sharePermission, setSharePermission] = useState<"VIEW" | "EDIT">("VIEW");
+  const [sharingFolderId, setSharingFolderId] = useState<string | null>(null);
+  const [accessList, setAccessList] = useState<any[]>([]);
+
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/login");
@@ -68,6 +72,12 @@ function DashboardContent() {
       fetchData();
     }
   }, [status, currentFolderId]);
+
+  useEffect(() => {
+    if (sharingFolderId) {
+      fetchAccessList();
+    }
+  }, [sharingFolderId]);
 
   // Global Search Logic
   useEffect(() => {
@@ -125,7 +135,25 @@ function DashboardContent() {
     }
   };
 
-  // Sorting Logic
+  const fetchAccessList = async () => {
+    try {
+      const res = await fetch(`/api/folders/access?id=${sharingFolderId}`);
+      const data = await res.json();
+      setAccessList(data || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const removeAccess = async (accessId: string) => {
+    try {
+      await fetch(`/api/folders/access?id=${accessId}`, { method: "DELETE" });
+      fetchAccessList();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const sortedItems = useMemo(() => {
     const sortFn = (a: any, b: any) => {
       if (sortBy === "name") return a.name.localeCompare(b.name);
@@ -134,7 +162,6 @@ function DashboardContent() {
       return 0;
     };
 
-    // Keep Starred items at the top
     const starredFolders = folders.filter(f => f.isStarred).sort(sortFn);
     const regularFolders = folders.filter(f => !f.isStarred).sort(sortFn);
     const starredFiles = files.filter(f => f.isStarred).sort(sortFn);
@@ -188,18 +215,44 @@ function DashboardContent() {
     const res = await fetch("/api/folders/share", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: shareEmail, folderId: sharingFolderId }),
+      body: JSON.stringify({ 
+        email: shareEmail, 
+        folderId: sharingFolderId, 
+        permission: sharePermission 
+      }),
     });
     if (res.ok) {
       alert("Shared successfully");
       setShareEmail("");
-      setSharingFolderId(null);
+      fetchAccessList();
+    } else {
+      const data = await res.json();
+      alert(data.message);
     }
   };
 
   const copyShareLink = (folderId: string) => {
     navigator.clipboard.writeText(`${window.location.origin}/dashboard?folderId=${folderId}`);
     alert("Link copied!");
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetFolderId: string) => {
+    e.preventDefault();
+    const fileId = e.dataTransfer.getData("fileId");
+    if (!fileId) return;
+
+    // Optimistic Update: Remove file from current view
+    setFiles(prev => prev.filter(f => f.id !== fileId));
+
+    try {
+      await fetch("/api/update", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: fileId, type: "file", updates: { folderId: targetFolderId } }),
+      });
+    } catch (e) {
+      fetchData(true); // Rollback on error
+    }
   };
 
   const getDownloadUrl = (file: any) => `/api/files/download?key=${file.key}`;
@@ -258,7 +311,7 @@ function DashboardContent() {
       const manifest = await res.json();
       const zip = new JSZip();
       for (const item of manifest) {
-        const fileRes = await fetch(`/api/files/download?key=${item.key}`);
+        const fileRes = await fetch(getDownloadUrl(item));
         let content = item.isEncoded ? new Uint8Array([...atob(await fileRes.text())].map(c => c.charCodeAt(0))) : await fileRes.blob();
         zip.file(item.path, content);
       }
@@ -279,7 +332,7 @@ function DashboardContent() {
   }
 
   const userId = (session?.user as any)?.id;
-  const canUpload = !currentFolderId || currentFolderData?.ownerId === userId || currentFolderData?.accessList?.some((a: any) => a.userId === userId && a.permission === "WRITE");
+  const canUpload = !currentFolderId || currentFolderData?.ownerId === userId || currentFolderData?.accessList?.some((a: any) => a.userId === userId && a.permission === "EDIT");
   const activeUploads = queue.filter(j => j.status === "uploading" || j.status === "queued").length;
 
   const isImage = (name: string) => /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(name);
@@ -307,7 +360,6 @@ function DashboardContent() {
       <nav className="bg-[#111] border-b border-gray-800 p-4 flex justify-between items-center sticky top-0 z-50 gap-4">
         <h1 className="text-xl font-bold text-blue-500 tracking-tight shrink-0">CloudShare</h1>
         
-        {/* Intelligence: Global Search Bar */}
         <div className="flex-1 max-w-xl relative group">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-blue-500 transition-colors" size={18} />
           <input 
@@ -348,7 +400,6 @@ function DashboardContent() {
           </div>
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
-            {/* Intelligence: Sorting Dropdown */}
             <div className="relative">
               <button 
                 onClick={() => setSortType(sortBy === "name" ? "date" : sortBy === "date" ? "size" : "name")}
@@ -400,7 +451,6 @@ function DashboardContent() {
                   {folder.ownerId === userId && <button onClick={() => deleteItem(folder.id, "folder")} className="p-1.5 rounded-lg hover:bg-[#222] text-gray-500 hover:text-red-500"><Trash2 size={14} /></button>}
                 </div>
 
-                {/* Color Picker Overlay */}
                 {activeColorPicker === folder.id && (
                   <div className="absolute top-12 right-2 bg-[#1a1a1a] border border-gray-800 p-2 rounded-xl z-10 grid grid-cols-3 gap-1 shadow-2xl animate-in zoom-in-95 duration-100">
                     {FOLDER_COLORS.map(c => (
@@ -452,7 +502,59 @@ function DashboardContent() {
         )}
       </main>
 
-      {/* Preview Modal remains same... */}
+      {sharingFolderId && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#111] border border-gray-800 p-6 rounded-[2.5rem] max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-8">
+              <div>
+                <h3 className="text-xl font-black text-white uppercase tracking-tighter">Manage Access</h3>
+                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Folder Permissions</p>
+              </div>
+              <button onClick={() => setSharingFolderId(null)} className="p-2 hover:bg-[#222] rounded-full transition"><X size={20} className="text-gray-500 hover:text-white" /></button>
+            </div>
+
+            <form onSubmit={shareFolder} className="space-y-4 mb-8">
+              <div className="flex gap-2">
+                <input type="email" placeholder="Invite by email..." value={shareEmail} onChange={(e) => setShareEmail(e.target.value)} className="flex-1 bg-[#1a1a1a] border border-gray-800 rounded-xl p-3 text-sm focus:outline-none focus:border-blue-500" required />
+                <select value={sharePermission} onChange={(e) => setSharePermission(e.target.value as any)} className="bg-[#1a1a1a] border border-gray-800 rounded-xl px-2 text-xs font-bold text-blue-500 focus:outline-none">
+                  <option value="VIEW">Viewer</option>
+                  <option value="EDIT">Editor</option>
+                </select>
+              </div>
+              <button type="submit" className="w-full py-3 bg-blue-600 text-white rounded-xl font-black uppercase tracking-widest text-xs hover:bg-blue-700 transition shadow-lg shadow-blue-600/20">Send Invite</button>
+            </form>
+
+            <div className="space-y-3 max-h-60 overflow-y-auto pr-2 scrollbar-thin">
+              <p className="text-[10px] text-gray-600 font-black uppercase tracking-[0.2em] mb-4">People with access</p>
+              <div className="flex items-center justify-between p-3 bg-[#0a0a0a] rounded-2xl border border-white/5">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-500 font-bold text-xs uppercase">{session?.user?.email?.[0] || "O"}</div>
+                  <div>
+                    <p className="text-xs font-bold text-gray-200">You (Owner)</p>
+                    <p className="text-[10px] text-gray-500">{session?.user?.email}</p>
+                  </div>
+                </div>
+              </div>
+              {accessList.map((access) => (
+                <div key={access.id} className="flex items-center justify-between p-3 bg-[#161616] rounded-2xl border border-gray-800/50 group">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-gray-400 font-bold text-xs uppercase">{access.user.email[0]}</div>
+                    <div>
+                      <p className="text-xs font-bold text-gray-200">{access.user.name || "Collaborator"}</p>
+                      <p className="text-[10px] text-gray-500">{access.user.email}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[9px] font-black px-2 py-1 rounded-md ${access.permission === 'EDIT' ? 'bg-purple-500/10 text-purple-400' : 'bg-blue-500/10 text-blue-400'}`}>{access.permission}</span>
+                    <button onClick={() => removeAccess(access.id)} className="p-1 text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {previewFile && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-2xl flex flex-col z-[60] animate-in fade-in duration-200">
           <div className="p-4 flex justify-between items-center bg-[#111] border-b border-gray-800">

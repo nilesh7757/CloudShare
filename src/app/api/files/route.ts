@@ -18,6 +18,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: "No files provided" }, { status: 400 });
     }
 
+    // Permission check for the target folder (assuming all files go to the same folder in a batch)
+    const targetFolderId = files[0].folderId;
+    const folder = await prisma.folder.findUnique({
+      where: { id: targetFolderId },
+      include: { accessList: { where: { userId } } }
+    });
+
+    if (!folder) return NextResponse.json({ message: "Folder not found" }, { status: 404 });
+    const isOwner = folder.ownerId === userId;
+    const isEditor = folder.accessList.some(a => a.permission === "EDIT");
+
+    if (!isOwner && !isEditor) {
+      return NextResponse.json({ message: "Only owners and editors can upload files" }, { status: 403 });
+    }
+
     // Process in a transaction or loop (Prisma createMany is better for Postgres)
     const createdFiles = await prisma.$transaction(
       files.map((f: any) => 

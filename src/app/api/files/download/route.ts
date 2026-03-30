@@ -46,8 +46,8 @@ export async function GET(req: Request) {
     return new Response(driveRes.data as any, {
       headers: {
         "Content-Type": metadata.data.mimeType || "application/octet-stream",
-        "Content-Disposition": `attachment; filename="${metadata.data.name}"`,
-        "Cache-Control": "no-store",
+        "Content-Disposition": "inline", // Allow browser preview
+        "Cache-Control": "public, max-age=3600",
       },
     });
   } catch (error: any) {

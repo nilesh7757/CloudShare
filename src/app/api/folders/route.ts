@@ -11,16 +11,31 @@ export async function POST(req: Request) {
     }
 
     const { name, parentId } = await req.json();
+    const userId = (session.user as any).id;
 
     if (!name) {
       return NextResponse.json({ message: "Folder name is required" }, { status: 400 });
+    }
+
+    // Permission check if creating inside another folder
+    if (parentId) {
+      const parent = await prisma.folder.findUnique({
+        where: { id: parentId },
+        include: { accessList: { where: { userId } } }
+      });
+      if (!parent) return NextResponse.json({ message: "Parent not found" }, { status: 404 });
+      const isOwner = parent.ownerId === userId;
+      const isEditor = parent.accessList.some(a => a.permission === "EDIT");
+      if (!isOwner && !isEditor) {
+        return NextResponse.json({ message: "Only owners and editors can create subfolders" }, { status: 403 });
+      }
     }
 
     const folder = await prisma.folder.create({
       data: {
         name,
         parentId,
-        ownerId: (session.user as any).id,
+        ownerId: userId,
       },
     });
 

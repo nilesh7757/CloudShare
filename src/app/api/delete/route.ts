@@ -30,17 +30,13 @@ async function getAllNestedItems(folderId: string): Promise<{ folderIds: string[
 export async function DELETE(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || !session.user) {
-      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-    }
+    if (!session || !session.user) return new Response("Unauthorized", { status: 401 });
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     const type = searchParams.get("type"); 
 
-    if (!id || !type) {
-      return NextResponse.json({ message: "Missing id or type" }, { status: 400 });
-    }
+    if (!id || !type) return new Response("Missing id or type", { status: 400 });
 
     const userId = (session.user as any).id;
 
@@ -49,20 +45,28 @@ export async function DELETE(req: Request) {
         where: { id },
       });
 
-      if (!folder) return NextResponse.json({ message: "Not found" }, { status: 404 });
-      if (folder.ownerId !== userId) {
-        return NextResponse.json({ message: "Only owners can delete folders" }, { status: 403 });
+      if (!folder) return new Response("Not found", { status: 404 });
+      
+      // Check if user is owner OR has access via shared folder
+      const isOwner = folder.ownerId === userId;
+      
+      if (!isOwner) {
+        return new Response("Only owners can delete folders", { status: 403 });
       }
 
       // 1. Get EVERY nested item recursively
       const { folderIds, fileKeys, fileIds } = await getAllNestedItems(id);
       
-      // 2. Delete all files from Google Drive cloud
+      // 2. Delete all files from Google Drive cloud (Parallel & Resilient)
       if (fileKeys.length > 0) {
-        await Promise.all(fileKeys.map(key => deleteDriveFile(key).catch(e => console.error(`Failed to delete ${key}:`, e.message))));
+        await Promise.all(
+          fileKeys.map(key => 
+            deleteDriveFile(key).catch(e => console.error(`Failed to delete Drive file ${key}:`, e.message))
+          )
+        );
       }
 
-      // 3. Delete everything from DB in correct order
+      // 3. Delete everything from DB
       await prisma.$transaction([
         prisma.folderAccess.deleteMany({ where: { folderId: { in: folderIds } } }),
         prisma.file.deleteMany({ where: { id: { in: fileIds } } }),
@@ -75,22 +79,22 @@ export async function DELETE(req: Request) {
         include: { folder: true }
       });
 
-      if (!file) return NextResponse.json({ message: "Not found" }, { status: 404 });
+      if (!file) return new Response("Not found", { status: 404 });
 
       if (file.ownerId !== userId && file.folder.ownerId !== userId) {
-        return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
+        return new Response("Unauthorized", { status: 403 });
       }
 
       if (file.key) {
-        await deleteDriveFile(file.key).catch(e => console.error(`Failed to delete ${file.key}:`, e.message));
+        await deleteDriveFile(file.key).catch(e => console.error("Drive delete error:", e.message));
       }
 
       await prisma.file.delete({ where: { id } });
     }
 
-    return NextResponse.json({ message: "Recursive deletion complete from Google Drive" });
-  } catch (error) {
+    return NextResponse.json({ message: "Deleted successfully" });
+  } catch (error: any) {
     console.error("Delete error:", error);
-    return NextResponse.json({ message: "Internal server error" }, { status: 500 });
+    return new Response(`Delete failed: ${error.message}`, { status: 500 });
   }
 }

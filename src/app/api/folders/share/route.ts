@@ -42,12 +42,12 @@ export async function POST(req: Request) {
         },
       },
       update: {
-        permission: permission || "WRITE",
+        permission: permission || "VIEW", // Default to Viewer if not specified
       },
       create: {
         folderId,
         userId: targetUser.id,
-        permission: permission || "WRITE",
+        permission: permission || "VIEW",
       },
     });
 
