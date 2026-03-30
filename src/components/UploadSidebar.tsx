@@ -56,6 +56,9 @@ export const UploadSidebar = () => {
                     <p className="text-[10px] text-gray-500 uppercase tracking-widest">
                       {job.completedFiles} / {job.totalFiles} Files • {job.status}
                     </p>
+                    <p className="text-[9px] text-blue-500/70 font-mono mt-0.5">
+                      {(job.uploadedSize / 1024 / 1024).toFixed(2)} MB / {(job.totalSize / 1024 / 1024).toFixed(2)} MB
+                    </p>
                   </div>
                   {job.status === "uploading" ? (
                     <Loader2 size={16} className="text-blue-500 animate-spin" />

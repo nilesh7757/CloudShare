@@ -21,7 +21,7 @@ export const FileUpload = ({ folderId, onUploadComplete }: FileUploadProps) => {
   }, [onUploadComplete]);
 
   // CHUNKED PROXY UPLOADER (BYPASSES ALL LIMITS)
-  const uploadToGoogleDrive = async (file: File, job: any, fileMeta: any) => {
+  const uploadToGoogleDrive = async (file: File, job: any, fileMeta: any, onProgress: (chunkUploaded: number) => void) => {
     try {
       // 1. Initialize the session via our server
       const initRes = await fetch("/api/files/upload", {
@@ -68,6 +68,9 @@ export const FileUpload = ({ folderId, onUploadComplete }: FileUploadProps) => {
         if (chunkRes.status === 200 || chunkRes.status === 201) {
           driveFileId = chunkData.data.id;
         }
+
+        // Report progress for this chunk
+        onProgress(end);
       }
 
       // 3. Finalize in Database
@@ -124,6 +127,10 @@ export const FileUpload = ({ folderId, onUploadComplete }: FileUploadProps) => {
       }
 
       let completedCount = 0;
+      let totalUploadedBytes = 0;
+      const fileSizesMap: Record<string, number> = {};
+      fileList.forEach(f => fileSizesMap[f.name] = f.size);
+
       for (const file of fileList) {
         const fileMeta = job.files.find((f: any) => f.name === file.name);
         const pathParts = (fileMeta?.path || "").split("/");
@@ -147,12 +154,27 @@ export const FileUpload = ({ folderId, onUploadComplete }: FileUploadProps) => {
         }
 
         try {
-          await uploadToGoogleDrive(fileToUpload, job, { targetId: actualTargetId, originalName, isEncoded });
+          let lastFileUploaded = 0;
+          await uploadToGoogleDrive(fileToUpload, job, { targetId: actualTargetId, originalName, isEncoded }, (chunkUploaded) => {
+            // Update global job progress
+            const currentTotalUploaded = totalUploadedBytes + chunkUploaded;
+            const progress = Math.min(Math.round((currentTotalUploaded / job.totalSize) * 100), 99);
+            
+            updateJob(job.id, { 
+              uploadedSize: currentTotalUploaded,
+              progress
+            });
+            lastFileUploaded = chunkUploaded;
+          });
+
           completedCount++;
+          totalUploadedBytes += file.size; // Use original file size for tracking
+          
           const updatedFiles = job.files.map((f: any) => f.name === file.name ? { ...f, status: "completed" } : f);
           updateJob(job.id, { 
             completedFiles: completedCount, 
-            progress: Math.round((completedCount / fileList.length) * 100),
+            progress: Math.round((totalUploadedBytes / job.totalSize) * 100),
+            uploadedSize: totalUploadedBytes,
             files: updatedFiles
           });
           onCompleteRef.current(true);
@@ -161,7 +183,7 @@ export const FileUpload = ({ folderId, onUploadComplete }: FileUploadProps) => {
         }
       }
       
-      updateJob(job.id, { status: "completed", progress: 100 });
+      updateJob(job.id, { status: "completed", progress: 100, uploadedSize: job.totalSize });
       onCompleteRef.current(true);
     } catch (err) {
       console.error(err);

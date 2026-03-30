@@ -12,6 +12,8 @@ export interface UploadJob {
   status: UploadStatus;
   totalFiles: number;
   completedFiles: number;
+  totalSize: number;
+  uploadedSize: number;
   folderId: string;
   type: "folder" | "files";
   files: { name: string; path: string; status: "pending" | "uploading" | "completed" | "failed" }[];
@@ -117,6 +119,8 @@ export const UploadProvider = ({ children }: { children: ReactNode }) => {
 
   const addUpload = async (name: string, files: File[], folderId: string, type: "folder" | "files") => {
     const id = Math.random().toString(36).substr(2, 9);
+    const totalSize = files.reduce((acc, f) => acc + f.size, 0);
+    
     const newJob: UploadJob = {
       id,
       name,
@@ -124,6 +128,8 @@ export const UploadProvider = ({ children }: { children: ReactNode }) => {
       status: "queued",
       totalFiles: files.length,
       completedFiles: 0,
+      totalSize,
+      uploadedSize: 0,
       folderId,
       type,
       files: files.map(f => ({ 
